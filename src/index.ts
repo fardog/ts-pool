@@ -21,8 +21,8 @@ interface ObjectInfo {
 
 export class Deferred<T> {
   public promise: Promise<T>
-  public resolve?: (value: T) => void
-  public reject?: (reason: any) => void
+  public resolve!: (value: T) => void
+  public reject!: (reason: any) => void
 
   constructor() {
     this.promise = new Promise<T>((resolve, reject) => {
@@ -134,9 +134,7 @@ abstract class Pool<T> {
 
     // lend the resource
     const borrow: Borrowed<T> = [rsc, () => this.returnResource(rsc)]
-    if (deferred.resolve) {
-      return deferred.resolve(borrow)
-    }
+    return deferred.resolve(borrow)
   }
 
   private returnResource = async (rsc: T): Promise<void> => {
