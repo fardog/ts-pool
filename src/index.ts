@@ -41,18 +41,23 @@ abstract class Pool<T> {
   private queue: Array<Deferred<Borrowed<T>>> = []
 
   private syncTimeout?: number
+  private syncing?: Promise<void>
 
   constructor(opts: Options) {
     this.options = opts
 
     if (opts.syncInterval) {
       this.syncTimeout = setInterval(() => {
-        this.sync()
+        if (!this.syncing) {
+          this.syncing = this.sync().then(() => (this.syncing = undefined))
+        }
       }, opts.syncInterval)
     }
 
     // start pool
-    this.sync()
+    setTimeout(() => {
+      this.syncing = this.sync()
+    }, 0)
   }
 
   abstract create(): Promise<T>
@@ -78,7 +83,9 @@ abstract class Pool<T> {
     // sync pool, which may add a resource for this request; or it may reject it
     // for being over the queue limit. don't wait for that here, just sync and
     // return the promise to the caller
-    this.sync()
+    if (!this.syncing) {
+      this.syncing = this.sync().then(() => (this.syncing = undefined))
+    }
 
     return future.promise
   }
@@ -105,7 +112,7 @@ abstract class Pool<T> {
       .splice(0, this.available.length)
       .map(this.removeResource)
 
-    return Promise.all(promises).then(() => { })
+    return Promise.all(promises).then(() => {})
   }
 
   private addResource = async (rsc: T): Promise<void> => {
@@ -209,7 +216,7 @@ abstract class Pool<T> {
         })
     }
 
-    return Promise.all(promises).then(() => { })
+    return Promise.all(promises).then(() => {})
   }
 }
 
