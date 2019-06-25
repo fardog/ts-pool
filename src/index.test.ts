@@ -87,7 +87,7 @@ describe("basic test case", () => {
     const pool = new TestPool({ minResources: 0, maxResources: 2 })
 
     const [rsc1, release1] = await pool.borrow()
-    const [rsc2, release2] = await pool.borrow()
+    const [_, release2] = await pool.borrow()
 
     pool.borrow().then(([rsc]) => {
       expect(rsc).toBe(rsc1)
