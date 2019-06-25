@@ -2,10 +2,10 @@
 
 A generic resource pool implementation in [Typescript][].
 
-**Warning:** This implementation has tests, but I haven't used it anywhere yet;
-it probably has bugs and oversights. I wrote it off the top of my head as an
-exercise, without any real planning. If I use this in real code, I'll remove
-this warning and actually publish it.
+**Warning:** This implementation has superficial tests, but I haven't used it
+anywhere yet; it probably has bugs and oversights. I wrote it off the top of my
+head as an exercise, without any real planning. If I use this in real code, I'll
+remove this warning and actually publish it.
 
 [Typescript]: https://www.typescriptlang.org/
 
