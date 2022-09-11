@@ -33,6 +33,22 @@ export class Deferred<T> {
   }
 }
 
+export enum RequestCancellationReason {
+  Destroyed,
+  MaxQueuedRequestsExceeded,
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+interface Pool<T> {
+  onCreate?: () => void
+  onDispose?: () => void
+  onBorrow?: () => void
+  onReturn?: () => void
+  onRequestEnqueued?: () => void
+  onRequestDequeued?: () => void
+  onRequestCancelled?: (reason: RequestCancellationReason) => void
+}
+
 abstract class Pool<T> {
   protected options: Options
   private ending = false
@@ -61,8 +77,17 @@ abstract class Pool<T> {
     }, 0)
   }
 
-  abstract create(): Promise<T>
-  abstract dispose(rsc: T): Promise<void>
+  protected abstract create(): Promise<T>
+  private _create = async (): Promise<T> => {
+    this.onCreate?.()
+    return this.create()
+  }
+
+  protected abstract dispose(rsc: T): Promise<void>
+  private _dispose = async (rsc: T): Promise<void> => {
+    this.onDispose?.()
+    return this.dispose(rsc)
+  }
 
   public borrow = async (): Promise<Borrowed<T>> => {
     if (this.ending) {
@@ -74,12 +99,14 @@ abstract class Pool<T> {
       this.removeResource(rsc)
     } else if (rsc) {
       const val: Borrowed<T> = [rsc, () => this.returnResource(rsc)]
+      this.onBorrow?.()
 
       return Promise.resolve(val)
     }
 
     const future = new Deferred<Borrowed<T>>()
     this.queue.push(future)
+    this.onRequestEnqueued?.()
 
     // sync pool, which may add a resource for this request; or it may reject it
     // for being over the queue limit. don't wait for that here, just sync and
@@ -104,9 +131,10 @@ abstract class Pool<T> {
     }
 
     // reject all queued requests
-    this.queue
-      .splice(0, this.queue.length)
-      .forEach((p) => p.reject && p.reject(new Error("pool is ending")))
+    this.queue.splice(0, this.queue.length).forEach((p) => {
+      this.onRequestCancelled?.(RequestCancellationReason.Destroyed)
+      p.reject(new Error("pool is ending"))
+    })
 
     // drain available pool
     const promises = this.available
@@ -140,6 +168,7 @@ abstract class Pool<T> {
       return
     }
 
+    this.onRequestDequeued?.()
     // lend the resource
     const borrow: Borrowed<T> = [rsc, () => this.returnResource(rsc)]
     return deferred.resolve(borrow)
@@ -150,6 +179,7 @@ abstract class Pool<T> {
     if (!info) {
       throw new Error("return resource called for unknown object")
     }
+    this.onReturn?.()
 
     const { resourceMaxAge } = this.options
 
@@ -168,7 +198,7 @@ abstract class Pool<T> {
       this.available.slice(idx, 1)
     }
 
-    return this.dispose(rsc)
+    return this._dispose(rsc)
   }
 
   private resourceIsExpired = (rsc: T): boolean => {
@@ -205,7 +235,7 @@ abstract class Pool<T> {
     const toCreate = Math.max(requestedSize - currentSize, 0)
 
     for (let i = 0; i < toCreate; ++i) {
-      promises.push(this.create().then((rsc) => this.addResource(rsc)))
+      promises.push(this._create().then((rsc) => this.addResource(rsc)))
     }
 
     // reject any queued requests over the queue limit
@@ -213,7 +243,10 @@ abstract class Pool<T> {
       this.queue
         .splice(maxRequests, this.queue.length - maxRequests)
         .forEach((future) => {
-          if (future.reject) future.reject(new Error("queue length exceeded"))
+          this.onRequestCancelled?.(
+            RequestCancellationReason.MaxQueuedRequestsExceeded
+          )
+          future.reject(new Error("queue length exceeded"))
         })
     }
 
