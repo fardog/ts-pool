@@ -22,7 +22,8 @@ interface ObjectInfo {
 export class Deferred<T> {
   public promise: Promise<T>
   public resolve!: (value: T) => void
-  public reject!: (reason: any) => void
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public reject!: (reason?: any) => void
 
   constructor() {
     this.promise = new Promise<T>((resolve, reject) => {
@@ -34,13 +35,13 @@ export class Deferred<T> {
 
 abstract class Pool<T> {
   protected options: Options
-  private ending: boolean = false
+  private ending = false
 
   private known: Map<T, ObjectInfo> = new Map()
   private available: Array<T> = []
   private queue: Array<Deferred<Borrowed<T>>> = []
 
-  private syncTimeout?: number
+  private syncTimeout?: NodeJS.Timer
   private syncing?: Promise<void>
 
   constructor(opts: Options) {
@@ -105,14 +106,14 @@ abstract class Pool<T> {
     // reject all queued requests
     this.queue
       .splice(0, this.queue.length)
-      .forEach(p => p.reject && p.reject(new Error("pool is ending")))
+      .forEach((p) => p.reject && p.reject(new Error("pool is ending")))
 
     // drain available pool
     const promises = this.available
       .splice(0, this.available.length)
       .map(this.removeResource)
 
-    return Promise.all(promises).then(() => {})
+    return Promise.all(promises).then()
   }
 
   private addResource = async (rsc: T): Promise<void> => {
@@ -122,7 +123,7 @@ abstract class Pool<T> {
       )
     }
     const info: ObjectInfo = {
-      created: Date.now()
+      created: Date.now(),
     }
     this.known.set(rsc, info)
 
@@ -181,11 +182,11 @@ abstract class Pool<T> {
   }
 
   private sync = async (): Promise<void> => {
-    const promises: Promise<any>[] = []
+    const promises: Promise<unknown>[] = []
     const { maxResources, minResources, maxRequests = Infinity } = this.options
 
     // expire out of date resources
-    this.available = this.available.slice().filter(rsc => {
+    this.available = this.available.slice().filter((rsc) => {
       if (!this.resourceIsExpired(rsc)) {
         promises.push(this.removeResource(rsc))
         return
@@ -204,19 +205,19 @@ abstract class Pool<T> {
     const toCreate = Math.max(requestedSize - currentSize, 0)
 
     for (let i = 0; i < toCreate; ++i) {
-      promises.push(this.create().then(rsc => this.addResource(rsc)))
+      promises.push(this.create().then((rsc) => this.addResource(rsc)))
     }
 
     // reject any queued requests over the queue limit
     if (this.queue.length > maxRequests) {
       this.queue
         .splice(maxRequests, this.queue.length - maxRequests)
-        .forEach(future => {
+        .forEach((future) => {
           if (future.reject) future.reject(new Error("queue length exceeded"))
         })
     }
 
-    return Promise.all(promises).then(() => {})
+    return Promise.all(promises).then()
   }
 }
 
