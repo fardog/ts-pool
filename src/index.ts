@@ -169,6 +169,7 @@ abstract class Pool<T> {
     }
 
     this.onRequestDequeued?.()
+    this.onBorrow?.()
     // lend the resource
     const borrow: Borrowed<T> = [rsc, () => this.returnResource(rsc)]
     return deferred.resolve(borrow)
