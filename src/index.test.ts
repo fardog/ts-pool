@@ -1,31 +1,20 @@
-import Pool, { Options, Deferred, Borrowed } from "./"
-
-describe("utility test cases", () => {
-  test("deferred has reject/resolve immediately available", async () => {
-    const deferred = new Deferred<number>()
-    expect(deferred.resolve).toBeTruthy()
-    expect(deferred.reject).toBeTruthy()
-    deferred.resolve(3)
-    expect(await deferred.promise).toBe(3)
-  })
-  test("deferred promise resolves", async () => {
-    const deferred = new Deferred<number>()
-    deferred.resolve(3)
-    expect(await deferred.promise).toBe(3)
-  })
-  test("deferred promise reject", async () => {
-    const deferred = new Deferred<number>()
-    deferred.reject(new Error("dang"))
-    try {
-      await deferred.promise
-      fail("should not resolve")
-    } catch (e) {
-      expect(e).toBeTruthy()
-    }
-  })
-})
+import Pool, {
+  Options,
+  Borrowed,
+  RequestCancellationReason,
+  TimeoutError,
+} from "./"
 
 describe("basic test case", () => {
+  type HookCounts = {
+    onCreate: number
+    onDispose: number
+    onBorrow: number
+    onRelease: number
+    onRequestEnqueued: number
+    onRequestDequeued: number
+    onRequestCancelled: RequestCancellationReason[]
+  }
   const options: Options = {
     minResources: 0,
     maxResources: 10,
@@ -36,6 +25,15 @@ describe("basic test case", () => {
   const disposed: jest.Mock<any, any>[] = []
 
   class TestPool extends Pool<jest.Mock> {
+    public hookCounts: HookCounts = {
+      onCreate: 0,
+      onDispose: 0,
+      onBorrow: 0,
+      onRelease: 0,
+      onRequestEnqueued: 0,
+      onRequestDequeued: 0,
+      onRequestCancelled: [],
+    }
     create(): Promise<jest.Mock> {
       createCount++
       return Promise.resolve(jest.fn())
@@ -46,6 +44,15 @@ describe("basic test case", () => {
       disposed.push(rsc)
       return Promise.resolve()
     }
+
+    // instrumentation
+    onCreate = () => this.hookCounts.onCreate++
+    onDispose = () => this.hookCounts.onDispose++
+    onBorrow = () => this.hookCounts.onBorrow++
+    onRequestEnqueued = () => this.hookCounts.onRequestEnqueued++
+    onRequestDequeued = () => this.hookCounts.onRequestDequeued++
+    onRequestCancelled = (reason: RequestCancellationReason) =>
+      this.hookCounts.onRequestCancelled.push(reason)
   }
 
   afterEach(() => {
@@ -70,6 +77,16 @@ describe("basic test case", () => {
     expect(rsc2).toBeCalledTimes(1)
     // verify is same resource
     expect(rsc2).toBe(rsc)
+
+    // verify hooks
+    expect(pool.hookCounts).toEqual(
+      createHookCounts({
+        onCreate: 1,
+        onBorrow: 2,
+        onRequestEnqueued: 1,
+        onRequestDequeued: 1,
+      })
+    )
   })
 
   test("borrow returns different resources", async () => {
@@ -81,10 +98,20 @@ describe("basic test case", () => {
     expect(rsc1).toBeTruthy()
     expect(rsc2).toBeTruthy()
     expect(rsc1).not.toBe(rsc2)
+
+    // verify hooks
+    expect(pool.hookCounts).toEqual(
+      createHookCounts({
+        onCreate: 2,
+        onBorrow: 2,
+        onRequestEnqueued: 2,
+        onRequestDequeued: 2,
+      })
+    )
   })
 
   test("borrow cannot exceed cap", async () => {
-    expect.assertions(1)
+    expect.assertions(2)
 
     const pool = new TestPool({ minResources: 0, maxResources: 2 })
 
@@ -100,26 +127,105 @@ describe("basic test case", () => {
       setTimeout(() => {
         release1()
         release2()
-        setTimeout(() => pool.destroy().then(() => resolve()), 10)
+        setTimeout(() => {
+          expect(pool.hookCounts).toEqual(
+            createHookCounts({
+              onCreate: 2,
+              onBorrow: 3,
+              onRequestEnqueued: 3,
+              onRequestDequeued: 3,
+            })
+          )
+          pool.destroy().then(() => resolve())
+        }, 10)
       }, 10)
     })
   })
 
   test("pool with minimum set allocates resources", async () => {
-    expect.assertions(1)
+    expect.assertions(2)
 
     const pool = new TestPool({ minResources: 5, maxResources: 10 })
 
     return new Promise<void>((resolve) => {
       setTimeout(() => {
         expect(createCount).toEqual(5)
+        expect(pool.hookCounts).toEqual(
+          createHookCounts({
+            onCreate: 5,
+          })
+        )
+
         pool.destroy().then(() => resolve())
       }, 10)
     })
   })
 
+  test("resource borrow timeout", async () => {
+    expect.assertions(4)
+
+    const pool = new TestPool({ minResources: 0, maxResources: 1 })
+
+    // consume the only resource available in the pool
+    await pool.borrow()
+
+    const pending = pool.borrow({ timeout: 10 })
+
+    expect(pool.outstandingBorrowsCount).toBe(1)
+
+    await expect(pending).rejects.toThrow(TimeoutError)
+
+    expect(pool.outstandingBorrowsCount).toBe(0)
+
+    expect(pool.hookCounts).toEqual(
+      createHookCounts({
+        onBorrow: 1,
+        onCreate: 1,
+        onRequestEnqueued: 2,
+        onRequestDequeued: 2,
+        onRequestCancelled: [RequestCancellationReason.Timeout],
+      })
+    )
+  })
+
+  test("resource borrow timeout, with success", async () => {
+    const pool = new TestPool({ minResources: 0, maxResources: 1 })
+
+    const [rsc, release] = await pool.borrow()
+    expect(rsc).toBeTruthy()
+    expect(rsc).toBeCalledTimes(0)
+
+    // call for later assertion
+    rsc()
+
+    const deferred = pool.borrow({ timeout: 30 })
+
+    await new Promise<void>((resolve) => {
+      setTimeout(() => {
+        release()
+        resolve()
+      }, 10)
+    })
+
+    const [rsc2] = await deferred
+
+    expect(rsc2).toBeCalledTimes(1)
+    // verify is same resource
+    expect(rsc2).toBe(rsc)
+
+    // verify hooks
+    expect(pool.hookCounts).toEqual(
+      createHookCounts({
+        onCreate: 1,
+        onBorrow: 2,
+        onRequestEnqueued: 2,
+        onRequestDequeued: 2,
+      })
+    )
+  })
+
   test("pool rejects in-flight borrows on destroy", async () => {
-    expect.assertions(10)
+    expect.assertions(11)
     const pool = new TestPool({ minResources: 0, maxResources: 10 })
 
     const borrows: Promise<Borrowed<jest.Mock>>[] = []
@@ -129,17 +235,30 @@ describe("basic test case", () => {
 
     pool.destroy().then()
 
-    borrows.forEach((borrow) => {
+    const promises = borrows.map((borrow) =>
       borrow
         .then(() => {
           throw new Error("fail: borrow should not succeed")
         })
         .catch((e) => expect(e).toBeTruthy())
-    })
+    )
+
+    await Promise.all(promises).then(() =>
+      expect(pool.hookCounts).toEqual(
+        createHookCounts({
+          onCreate: 1,
+          onRequestEnqueued: 10,
+          onRequestDequeued: 10,
+          onRequestCancelled: new Array(10).fill(
+            RequestCancellationReason.Destroyed
+          ),
+        })
+      )
+    )
   })
 
   test("pool ends all resources on destroy", async () => {
-    expect.assertions(2)
+    expect.assertions(3)
     const pool = new TestPool({ minResources: 5, maxResources: 10 })
 
     // borrow a resource to fully sync the pool
@@ -150,6 +269,28 @@ describe("basic test case", () => {
     await pool.destroy().then(() => {
       expect(createCount).toBe(5)
       expect(disposeCount).toBe(5)
+      expect(pool.hookCounts).toEqual(
+        createHookCounts({
+          onBorrow: 1,
+          onCreate: 5,
+          onDispose: 5,
+          onRequestEnqueued: 1,
+          onRequestDequeued: 1,
+        })
+      )
     })
   })
+
+  function createHookCounts(countsPartial: Partial<HookCounts>): HookCounts {
+    return {
+      onCreate: 0,
+      onDispose: 0,
+      onBorrow: 0,
+      onRelease: 0,
+      onRequestEnqueued: 0,
+      onRequestDequeued: 0,
+      onRequestCancelled: [],
+      ...countsPartial,
+    }
+  }
 })
