@@ -10,7 +10,7 @@ describe("basic test case", () => {
     onCreate: number
     onDispose: number
     onBorrow: number
-    onReturn: number
+    onRelease: number
     onRequestEnqueued: number
     onRequestDequeued: number
     onRequestCancelled: RequestCancellationReason[]
@@ -29,7 +29,7 @@ describe("basic test case", () => {
       onCreate: 0,
       onDispose: 0,
       onBorrow: 0,
-      onReturn: 0,
+      onRelease: 0,
       onRequestEnqueued: 0,
       onRequestDequeued: 0,
       onRequestCancelled: [],
@@ -171,11 +171,11 @@ describe("basic test case", () => {
 
     const pending = pool.borrow({ timeout: 10 })
 
-    expect(pool.outstandingRequests).toBe(1)
+    expect(pool.outstandingBorrowsCount).toBe(1)
 
     await expect(pending).rejects.toThrow(TimeoutError)
 
-    expect(pool.outstandingRequests).toBe(0)
+    expect(pool.outstandingBorrowsCount).toBe(0)
 
     expect(pool.hookCounts).toEqual(
       createHookCounts({
@@ -184,6 +184,42 @@ describe("basic test case", () => {
         onRequestEnqueued: 2,
         onRequestDequeued: 2,
         onRequestCancelled: [RequestCancellationReason.Timeout],
+      })
+    )
+  })
+
+  test("resource borrow timeout, with success", async () => {
+    const pool = new TestPool({ minResources: 0, maxResources: 1 })
+
+    const [rsc, release] = await pool.borrow()
+    expect(rsc).toBeTruthy()
+    expect(rsc).toBeCalledTimes(0)
+
+    // call for later assertion
+    rsc()
+
+    const deferred = pool.borrow({ timeout: 30 })
+
+    await new Promise<void>((resolve) => {
+      setTimeout(() => {
+        release()
+        resolve()
+      }, 10)
+    })
+
+    const [rsc2] = await deferred
+
+    expect(rsc2).toBeCalledTimes(1)
+    // verify is same resource
+    expect(rsc2).toBe(rsc)
+
+    // verify hooks
+    expect(pool.hookCounts).toEqual(
+      createHookCounts({
+        onCreate: 1,
+        onBorrow: 2,
+        onRequestEnqueued: 2,
+        onRequestDequeued: 2,
       })
     )
   })
@@ -250,7 +286,7 @@ describe("basic test case", () => {
       onCreate: 0,
       onDispose: 0,
       onBorrow: 0,
-      onReturn: 0,
+      onRelease: 0,
       onRequestEnqueued: 0,
       onRequestDequeued: 0,
       onRequestCancelled: [],
