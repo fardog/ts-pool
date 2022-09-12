@@ -1,34 +1,9 @@
 import Pool, {
   Options,
-  Deferred,
   Borrowed,
   RequestCancellationReason,
+  TimeoutError,
 } from "./"
-
-describe("utility test cases", () => {
-  test("deferred has reject/resolve immediately available", async () => {
-    const deferred = new Deferred<number>()
-    expect(deferred.resolve).toBeTruthy()
-    expect(deferred.reject).toBeTruthy()
-    deferred.resolve(3)
-    expect(await deferred.promise).toBe(3)
-  })
-  test("deferred promise resolves", async () => {
-    const deferred = new Deferred<number>()
-    deferred.resolve(3)
-    expect(await deferred.promise).toBe(3)
-  })
-  test("deferred promise reject", async () => {
-    const deferred = new Deferred<number>()
-    deferred.reject(new Error("dang"))
-    try {
-      await deferred.promise
-      fail("should not resolve")
-    } catch (e) {
-      expect(e).toBeTruthy()
-    }
-  })
-})
 
 describe("basic test case", () => {
   type HookCounts = {
@@ -186,6 +161,33 @@ describe("basic test case", () => {
     })
   })
 
+  test("resource borrow timeout", async () => {
+    expect.assertions(4)
+
+    const pool = new TestPool({ minResources: 0, maxResources: 1 })
+
+    // consume the only resource available in the pool
+    await pool.borrow()
+
+    const pending = pool.borrow({ timeout: 10 })
+
+    expect(pool.outstandingRequests).toBe(1)
+
+    await expect(pending).rejects.toThrow(TimeoutError)
+
+    expect(pool.outstandingRequests).toBe(0)
+
+    expect(pool.hookCounts).toEqual(
+      createHookCounts({
+        onBorrow: 1,
+        onCreate: 1,
+        onRequestEnqueued: 2,
+        onRequestDequeued: 2,
+        onRequestCancelled: [RequestCancellationReason.Timeout],
+      })
+    )
+  })
+
   test("pool rejects in-flight borrows on destroy", async () => {
     expect.assertions(11)
     const pool = new TestPool({ minResources: 0, maxResources: 10 })
@@ -210,6 +212,7 @@ describe("basic test case", () => {
         createHookCounts({
           onCreate: 1,
           onRequestEnqueued: 10,
+          onRequestDequeued: 10,
           onRequestCancelled: new Array(10).fill(
             RequestCancellationReason.Destroyed
           ),

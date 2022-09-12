@@ -1,3 +1,5 @@
+import { Deferred } from "./utils"
+
 export interface Options {
   minResources: number
   maxResources: number
@@ -13,29 +15,33 @@ export interface Options {
   resourceMaxAge?: number
 }
 
+export interface BorrowOptions {
+  timeout?: number
+}
+
 export type Borrowed<T> = [T, () => void]
 
 interface ObjectInfo {
   created: number
 }
 
-export class Deferred<T> {
-  public promise: Promise<T>
-  public resolve!: (value: T) => void
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  public reject!: (reason?: any) => void
-
-  constructor() {
-    this.promise = new Promise<T>((resolve, reject) => {
-      this.resolve = resolve
-      this.reject = reject
-    })
-  }
-}
-
 export enum RequestCancellationReason {
   Destroyed,
   MaxQueuedRequestsExceeded,
+  Timeout,
+}
+
+export class TimeoutError extends Error {
+  public constructor(msg = "timeout") {
+    super(msg)
+    Object.setPrototypeOf(this, TimeoutError.prototype)
+    this.name = "TimeoutError"
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, TimeoutError)
+    }
+    this.message = msg
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -89,7 +95,7 @@ abstract class Pool<T> {
     return this.dispose(rsc)
   }
 
-  public borrow = async (): Promise<Borrowed<T>> => {
+  public borrow = async (options?: BorrowOptions): Promise<Borrowed<T>> => {
     if (this.ending) {
       throw new Error("pool is ending")
     }
@@ -115,7 +121,31 @@ abstract class Pool<T> {
       this.syncing = this.sync().then(() => (this.syncing = undefined))
     }
 
+    // handle resource acquisition timeout, if any
+    const timeout = options?.timeout ?? this.options.borrowTimeout
+    if (timeout) {
+      let tid: NodeJS.Timer
+      return Promise.race([
+        future.promise.finally(() => clearTimeout(tid)),
+        new Promise<Borrowed<T>>((resolve, reject) => {
+          setTimeout(() => {
+            const idx = this.queue.indexOf(future)
+            if (idx !== undefined) {
+              this.onRequestCancelled?.(RequestCancellationReason.Timeout)
+              this.onRequestDequeued?.()
+              this.queue.splice(idx, 1)
+            }
+            reject(new TimeoutError())
+          }, timeout)
+        }),
+      ])
+    }
+
     return future.promise
+  }
+
+  public get outstandingRequests(): number {
+    return this.queue.length
   }
 
   public remove = async (rsc: T): Promise<void> => {
@@ -133,6 +163,7 @@ abstract class Pool<T> {
     // reject all queued requests
     this.queue.splice(0, this.queue.length).forEach((p) => {
       this.onRequestCancelled?.(RequestCancellationReason.Destroyed)
+      this.onRequestDequeued?.()
       p.reject(new Error("pool is ending"))
     })
 
@@ -247,6 +278,7 @@ abstract class Pool<T> {
           this.onRequestCancelled?.(
             RequestCancellationReason.MaxQueuedRequestsExceeded
           )
+          this.onRequestDequeued?.()
           future.reject(new Error("queue length exceeded"))
         })
     }
