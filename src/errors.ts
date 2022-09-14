@@ -1,3 +1,7 @@
+/**
+ * Thrown when a timeout occurs.
+ * @public
+ */
 export class TimeoutError extends Error {
   public constructor(msg = "timeout") {
     super(msg)
@@ -11,6 +15,10 @@ export class TimeoutError extends Error {
   }
 }
 
+/**
+ * Thrown when the number of borrows is exceeded, and a request is rejected.
+ * @public
+ */
 export class MaxOutstandingBorrowsError extends Error {
   public constructor(msg = "max outstanding borrows exceeded") {
     super(msg)
@@ -24,6 +32,11 @@ export class MaxOutstandingBorrowsError extends Error {
   }
 }
 
+/**
+ * Thrown when an operation is performed on a pool that is destroyed, or in the
+ * process of being destroyed.
+ * @public
+ */
 export class PoolDestroyedError extends Error {
   public constructor(msg = "pool is destroyed") {
     super(msg)
@@ -37,6 +50,11 @@ export class PoolDestroyedError extends Error {
   }
 }
 
+/**
+ * Thrown when an operation is requested on a resource which is not known to the
+ * pool.
+ * @public
+ */
 export class UnknownResourceError extends Error {
   public constructor(msg = "resource is unknown to this pool") {
     super(msg)

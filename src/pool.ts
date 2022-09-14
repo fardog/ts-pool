@@ -6,6 +6,10 @@ import {
 } from "./errors"
 import { Deferred } from "./utils"
 
+/**
+ * Pool options, passed when initializing the pool.
+ * @public
+ */
 export interface Options {
   /**
    * The minimum number of resources to keep in the pool; a positive integer.
@@ -54,6 +58,11 @@ export interface Options {
   syncInterval?: number
 }
 
+/**
+ * Borrow options, which may be optionally passed when borrowing a resource from
+ * the pool.
+ * @public
+ */
 export interface BorrowOptions {
   /**
    * The time a borrow request is allowed to wait for an available resource
@@ -68,6 +77,7 @@ export interface BorrowOptions {
 /**
  * A tuple of the borrowed resource, and a function to call to return that
  * resource.
+ * @public
  */
 export type Borrowed<T> = [T, () => void]
 
@@ -77,6 +87,7 @@ interface ObjectInfo {
 
 /**
  * The reason a request was cancelled.
+ * @public
  */
 export enum RequestCancellationReason {
   /**
@@ -94,7 +105,13 @@ export enum RequestCancellationReason {
   Timeout,
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
+/**
+ * Abstract class Pool, which will be implemented to create a custom resource
+ * pool.
+ * @public
+ */
 export interface Pool<T> {
   /**
    * Called when a resource is borrowed.
@@ -118,6 +135,13 @@ export interface Pool<T> {
   onRequestCancelled?: (reason: RequestCancellationReason) => void
 }
 
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
+/**
+ * Abstract class Pool, which will be implemented to create a custom resource
+ * pool.
+ * @public
+ */
 export abstract class Pool<T> {
   protected options: Options
   private isDestroying = false

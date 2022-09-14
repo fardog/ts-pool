@@ -1,5 +1,6 @@
 export {
   Pool as default,
+  Borrowed,
   BorrowOptions,
   Options,
   RequestCancellationReason,
