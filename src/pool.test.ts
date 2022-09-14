@@ -1,14 +1,8 @@
-import Pool, {
-  Options,
-  Borrowed,
-  RequestCancellationReason,
-  TimeoutError,
-} from "./"
+import { Pool, Options, Borrowed, RequestCancellationReason } from "./pool"
+import { TimeoutError } from "./errors"
 
 describe("basic test case", () => {
   type HookCounts = {
-    onCreate: number
-    onDispose: number
     onBorrow: number
     onRelease: number
     onRequestEnqueued: number
@@ -26,8 +20,6 @@ describe("basic test case", () => {
 
   class TestPool extends Pool<jest.Mock> {
     public hookCounts: HookCounts = {
-      onCreate: 0,
-      onDispose: 0,
       onBorrow: 0,
       onRelease: 0,
       onRequestEnqueued: 0,
@@ -46,8 +38,6 @@ describe("basic test case", () => {
     }
 
     // instrumentation
-    onCreate = () => this.hookCounts.onCreate++
-    onDispose = () => this.hookCounts.onDispose++
     onBorrow = () => this.hookCounts.onBorrow++
     onRequestEnqueued = () => this.hookCounts.onRequestEnqueued++
     onRequestDequeued = () => this.hookCounts.onRequestDequeued++
@@ -81,7 +71,6 @@ describe("basic test case", () => {
     // verify hooks
     expect(pool.hookCounts).toEqual(
       createHookCounts({
-        onCreate: 1,
         onBorrow: 2,
         onRequestEnqueued: 1,
         onRequestDequeued: 1,
@@ -102,7 +91,6 @@ describe("basic test case", () => {
     // verify hooks
     expect(pool.hookCounts).toEqual(
       createHookCounts({
-        onCreate: 2,
         onBorrow: 2,
         onRequestEnqueued: 2,
         onRequestDequeued: 2,
@@ -130,7 +118,6 @@ describe("basic test case", () => {
         setTimeout(() => {
           expect(pool.hookCounts).toEqual(
             createHookCounts({
-              onCreate: 2,
               onBorrow: 3,
               onRequestEnqueued: 3,
               onRequestDequeued: 3,
@@ -150,11 +137,7 @@ describe("basic test case", () => {
     return new Promise<void>((resolve) => {
       setTimeout(() => {
         expect(createCount).toEqual(5)
-        expect(pool.hookCounts).toEqual(
-          createHookCounts({
-            onCreate: 5,
-          })
-        )
+        expect(pool.hookCounts).toEqual(createHookCounts({}))
 
         pool.destroy().then(() => resolve())
       }, 10)
@@ -180,7 +163,6 @@ describe("basic test case", () => {
     expect(pool.hookCounts).toEqual(
       createHookCounts({
         onBorrow: 1,
-        onCreate: 1,
         onRequestEnqueued: 2,
         onRequestDequeued: 2,
         onRequestCancelled: [RequestCancellationReason.Timeout],
@@ -216,12 +198,22 @@ describe("basic test case", () => {
     // verify hooks
     expect(pool.hookCounts).toEqual(
       createHookCounts({
-        onCreate: 1,
         onBorrow: 2,
         onRequestEnqueued: 2,
         onRequestDequeued: 2,
       })
     )
+  })
+
+  test("requests coming in during a sync are fulfilled", async () => {
+    const pool = new TestPool({ minResources: 0, maxResources: 2 })
+
+    const [rsc] = await pool.borrow()
+    expect(rsc).toBeTruthy()
+    await Promise.resolve().then()
+
+    const [rsc2] = await pool.borrow()
+    expect(rsc2).toBeTruthy()
   })
 
   test("pool rejects in-flight borrows on destroy", async () => {
@@ -246,7 +238,6 @@ describe("basic test case", () => {
     await Promise.all(promises).then(() =>
       expect(pool.hookCounts).toEqual(
         createHookCounts({
-          onCreate: 1,
           onRequestEnqueued: 10,
           onRequestDequeued: 10,
           onRequestCancelled: new Array(10).fill(
@@ -272,8 +263,6 @@ describe("basic test case", () => {
       expect(pool.hookCounts).toEqual(
         createHookCounts({
           onBorrow: 1,
-          onCreate: 5,
-          onDispose: 5,
           onRequestEnqueued: 1,
           onRequestDequeued: 1,
         })
@@ -283,8 +272,6 @@ describe("basic test case", () => {
 
   function createHookCounts(countsPartial: Partial<HookCounts>): HookCounts {
     return {
-      onCreate: 0,
-      onDispose: 0,
       onBorrow: 0,
       onRelease: 0,
       onRequestEnqueued: 0,

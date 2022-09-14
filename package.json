@@ -2,11 +2,11 @@
   "name": "ts-pool",
   "version": "0.0.1",
   "description": "Generic resource pool for typescript",
-  "main": "dist/index.js",
+  "main": "lib/index.js",
   "scripts": {
     "test": "jest && npm run lint",
-    "prettier": "prettier -c src/**/* *.md *.json *.js",
-    "eslint": "eslint src/**/*",
+    "prettier": "prettier -c src/**/* *.md *.json *.{c,}js",
+    "eslint": "eslint src/**/* *.{c,}js",
     "lint": "npm run prettier && npm run eslint"
   },
   "repository": {
@@ -20,12 +20,15 @@
   },
   "homepage": "https://github.com/fardog/ts-pool#readme",
   "devDependencies": {
+    "@microsoft/api-documenter": "^7.19.10",
+    "@microsoft/api-extractor": "^7.30.0",
     "@types/jest": "^29.0.1",
     "@typescript-eslint/eslint-plugin": "^5.36.2",
     "@typescript-eslint/parser": "^5.36.2",
     "eslint": "^8.23.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-import": "^2.16.0",
+    "eslint-plugin-tsdoc": "^0.2.16",
     "jest": "^29.0.3",
     "prettier": "^2.7.1",
     "ts-jest": "^29.0.0",
@@ -34,7 +37,6 @@
   "prettier": {
     "semi": false
   },
-  "dependencies": {},
   "jest": {
     "preset": "ts-jest",
     "testMatch": [
