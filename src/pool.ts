@@ -368,7 +368,7 @@ export abstract class Pool<T> {
 
     // expire out of date resources
     this.availableResources = this.availableResources.slice().filter((rsc) => {
-      if (!this.resourceIsExpired(rsc)) {
+      if (this.resourceIsExpired(rsc)) {
         promises.push(this.removeResource(rsc))
         return
       }
