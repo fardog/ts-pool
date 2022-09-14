@@ -34,10 +34,11 @@ class TestPool extends Pool<Resource> {
 
 async function usePool() {
   const pool = new TestPool({ minResources: 0, maxResources: 10 })
-  const [resource, dispose] = await pool.borrow()
+  const [resource, release] = await pool.borrow()
 
   console.log(await resource.doCoolThing()) // "cool"
-  await dispose()
+  // release the resource back to the pool
+  release()
 }
 
 usePool()
